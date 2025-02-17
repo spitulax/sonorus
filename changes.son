@@ -1,0 +1,142 @@
+Enum Voicing:
+    voiceless
+    voiced
+
+Enum Manner:
+    fricative
+    plosive:
+        stop
+        affricate
+    # When searching for manner=liquid, both are included
+    # Specifying the inner enum is mandatory but one can be selected as the default with `*`
+    sonorant:
+        nasal
+        liquid:
+            lateral
+            trill
+        semivowel
+
+Enum Place:
+    labial
+    alveolar
+    palatal
+    velar
+
+Enum Frontness:
+    front
+    central
+    back
+
+Enum Height:
+    high
+    mid
+    midlow
+    low
+
+Tokenizer:
+    Enum:
+        consonant
+        syllabic:
+            vowel
+            consonant
+
+    Field consonant:
+        voicing: Voicing
+        manner: Manner
+        place: Place
+        palatalised: Bool
+    Field syllabic.vowel:
+        frontness: Frontness
+        height: Height
+        # Enums may define a default value
+        # You can also add or override default value:
+        # `round: Bool true`
+        round: Bool
+        yer: Bool
+        nasal: Bool
+        strong: Bool
+        retracted: Bool
+    Field syllabic.consonant:
+        # Enum fields are allowed if they contain subfields
+        manner: Manner.sonorant
+        place: Place
+    
+    Token consonant:
+        voicing=voiceless:
+            manner=plosive.stop:
+                place=labial: p
+                place=alveolar: t
+                place=palatal: ť
+                place=velar: k
+            manner=fricative:
+                place=labial: f
+                place=alveolar: s
+                # Tokens don't have to have unique fields
+                # Their character is already unique
+                # Space is the separator, if the token contains space, surround it with ''
+                place=palatal: š ś
+                place=velar: x
+            manner=plosive.affricate:
+                place=alveolar: c
+                place=palatal: č
+        voicing=voiced:
+            manner=sonorant.nasal:
+                place=labial: m
+                place=alveolar: n
+                place=palatal: ň
+            manner=plosive.stop:
+                place=labial: b
+                place=alveolar: d
+                place=palatal: ď
+                place=velar: g
+            manner=fricative:
+                place=labial: v
+                place=alveolar: z
+                place=palatal: ž
+            manner=plosive.affricate:
+                place=alveolar: dz
+                place=palatal: dž
+            manner=sonorant.liquid.lateral:
+                place=alveolar: l
+                place=palatal: ľ
+            manner=sonorant.liquid.trill:
+                place=alveolar: r
+                place=palatal: ř
+            manner=sonorant.semivowel place=palatal: j
+    Token syllabic.vowel:
+        height=high:
+            frontness=front:
+                _: i
+                round=true: y
+                yer=true: ь
+            frontness=back round=true:
+                _: u
+                yer=true: ъ
+        height=mid:
+            frontness=front:
+                _: e
+                nasal=true: ę
+                round=true: ø
+            frontness=central: ə
+            frontness=back round=true:
+                _: o
+                nasal=true: ǫ
+        height=midlow frontness=front: ě
+        height=low frontness=back: a
+    Token syllabic.consonant:
+        manner=liquid.lateral:
+            place=alveolar: l̥
+            place=palatal: ľ̥
+        manner=liquid.trill:
+            place=alveolar: r̥
+            place=palatal: ř̥
+
+Def fricative: consonant[manner=fricative]
+Def plosive: consonant[manner=plosive]
+Def sonorant: consonant[manner=sonorant]
+
+# Syllable:
+#     Field:
+#         stress: Bool
+#     Initial:
+#         ($fricative? $plosive? )
