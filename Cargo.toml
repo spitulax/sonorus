@@ -1,0 +1,14 @@
+[package]
+name = "sonorus"
+version = "0.0.0"
+authors = [ "spitulax" ]
+edition = "2021"
+description = "Advanced sound changer"
+readme = "README.md"
+homepage = "https://github.com/spitulax/sonorus"
+repository = "https://github.com/spitulax/sonorus"
+license = "MIT"
+keywords = ["linguistics", "phonetics"]
+categories = ["command-line-utilities"] # https://crates.io/category_slugs
+
+[dependencies]
