@@ -419,203 +419,249 @@ impl<'a> Lexer<'a> {
 mod test {
     use super::*;
 
-    struct Value<'a> {
-        /// [`None`] for filler, does not actually assert. Only for filling in skipped characters.
-        kind: Option<TokenKind>,
-        data: Option<TokenData<'a>>,
-        len: usize,
-        len_byte: usize,
-    }
+    mod assert {
+        use super::*;
 
-    impl<'a> Value<'a> {
-        pub fn new(
-            kind: TokenKind,
+        pub struct Value<'a> {
+            /// [`None`] for filler, does not actually assert. Only for filling in skipped characters.
+            kind: Option<TokenKind>,
             data: Option<TokenData<'a>>,
             len: usize,
             len_byte: usize,
-        ) -> Self {
-            Self {
-                kind: Some(kind),
-                data,
-                len,
-                len_byte,
+        }
+
+        impl<'a> Value<'a> {
+            pub fn new(
+                kind: TokenKind,
+                data: Option<TokenData<'a>>,
+                len: usize,
+                len_byte: usize,
+            ) -> Self {
+                Self {
+                    kind: Some(kind),
+                    data,
+                    len,
+                    len_byte,
+                }
+            }
+
+            pub fn filler(len: usize, len_byte: usize) -> Self {
+                Self {
+                    kind: None,
+                    data: None,
+                    len,
+                    len_byte,
+                }
             }
         }
 
-        pub fn filler(len: usize, len_byte: usize) -> Self {
-            Self {
-                kind: None,
-                data: None,
-                len,
-                len_byte,
+        pub mod values {
+            use super::*;
+
+            pub fn filler(len: usize, len_byte: usize) -> Value<'static> {
+                Value::filler(len, len_byte)
+            }
+
+            pub fn numeric(n: &str) -> Value {
+                Value::new(
+                    TokenKind::Numeric,
+                    Some(TokenData::String(n)),
+                    n.len(),
+                    // Should be ASCII
+                    n.len(),
+                )
+            }
+
+            #[derive(Copy, Clone)]
+            pub enum NewlineKind {
+                Unix = 1,
+                Dos = 2,
+            }
+
+            impl NewlineKind {
+                pub fn into_str(self) -> &'static str {
+                    match self {
+                        Self::Unix => "\n",
+                        Self::Dos => "\r\n",
+                    }
+                }
+            }
+
+            pub const NEWLINES: [NewlineKind; 2] = [NewlineKind::Unix, NewlineKind::Dos];
+
+            impl From<NewlineKind> for &str {
+                fn from(value: NewlineKind) -> Self {
+                    value.into_str()
+                }
+            }
+
+            pub fn newline(kind: NewlineKind) -> Value<'static> {
+                Value::new(
+                    TokenKind::Newline,
+                    None,
+                    kind as usize,
+                    // Should be ASCII
+                    kind as usize,
+                )
+            }
+
+            pub fn unewline() -> Value<'static> {
+                newline(NewlineKind::Unix)
+            }
+
+            pub fn indent(kind: IndentKind, n: usize) -> Value<'static> {
+                Value::new(
+                    TokenKind::Indent(kind),
+                    Some(TokenData::Integer(n)),
+                    n,
+                    // Should be ASCII
+                    n,
+                )
+            }
+
+            pub fn unknown(s: &str) -> Value {
+                Value::new(
+                    TokenKind::Unknown,
+                    Some(TokenData::String(s)),
+                    s.chars().count(),
+                    s.len(),
+                )
             }
         }
-    }
 
-    fn filler(len: usize, len_byte: usize) -> Value<'static> {
-        Value::filler(len, len_byte)
-    }
+        macro_rules! error {
+            ($token:expr, $($msg:tt)*) => {
+                panic!("{}: {}", $token.start_loc, format!($($msg)*));
+            };
+        }
 
-    fn number(n: &str) -> Value {
-        Value::new(
-            TokenKind::Numeric,
-            Some(TokenData::String(n)),
-            n.len(),
-            // Should be ASCII
-            1 * n.len(),
-        )
-    }
+        macro_rules! eq {
+            ($token:expr, $left:expr, $right:expr) => {
+                if $left != $right {
+                    error!(
+                        $token,
+                        "`{} == {}` failed\nExpected {:?}, got {:?}",
+                        stringify!($left),
+                        stringify!($right),
+                        $left,
+                        $right,
+                    );
+                }
+            };
+            ($token:expr, $left:expr, $right:expr, $($msg:tt)*) => {
+                if $left != $right {
+                    error!($token, $($msg)* _l = $left, _r = $right);
+                }
+            };
+        }
 
-    fn newline() -> Value<'static> {
-        Value::new(
-            TokenKind::Newline,
-            None,
-            1,
-            // Should be ASCII
-            1 * 1,
-        )
-    }
+        pub fn assert(
+            token: &Token,
+            kind: &TokenKind,
+            data: &Option<TokenData>,
+            start_loc: &Loc,
+            start_byte: &usize,
+            len: &usize,
+            len_byte: &usize,
+        ) {
+            // NOTE: Keep track of fields
+            let _ = Token {
+                kind: TokenKind::default(),
+                start_loc: Loc::new(0, 0),
+                start_byte: 0,
+                finalised: Some(TokenFinalised {
+                    data: None,
+                    len: 0,
+                    len_byte: 0,
+                }),
+            };
 
-    fn indent(kind: IndentKind, n: usize) -> Value<'static> {
-        Value::new(
-            TokenKind::Indent(kind),
-            Some(TokenData::Integer(n)),
-            n,
-            // Should be ASCII
-            1 * n,
-        )
-    }
-
-    fn assert_tokens(tokens: &[Token], values: &[Value]) {
-        assert_eq!(
-            tokens.len() - 1,
-            values.iter().filter(|x| x.kind.is_some()).count(),
-            "Expected non-filter `values` with the length of `tokens` length minus 1"
-        );
-
-        let mut cur_loc = Loc::new(1, 1);
-        let mut cur_byte = 0;
-        let mut i = 0;
-        for value in values {
-            let token = &tokens[i];
-
-            if let Some(ref k) = value.kind {
-                assert(
+            if let Some(ref f) = token.finalised {
+                eq!(
                     token,
-                    k,
-                    &value.data,
-                    &cur_loc,
-                    &cur_byte,
-                    &value.len,
-                    &value.len_byte,
+                    *kind,
+                    token.kind,
+                    "Expected token kind to be {_l:?}, is actually {_r:?}",
                 );
-
-                i += 1;
-            }
-
-            cur_loc = Loc::new(cur_loc.line, cur_loc.col + value.len);
-            cur_byte += value.len_byte;
-
-            if token.kind == TokenKind::Newline {
-                cur_loc.line += 1;
-                cur_loc.col = 1;
+                eq!(
+                    token,
+                    *start_loc,
+                    token.start_loc,
+                    "Expected token to start at {_l}, actually at {_r}",
+                );
+                eq!(
+                    token,
+                    *start_byte,
+                    token.start_byte,
+                    "Expected token to start at byte {_l}, actually at byte {_r}",
+                );
+                eq!(
+                    token,
+                    *data,
+                    f.data,
+                    "Expected token data to be {_l:?}, is actually {_r:?}",
+                );
+                eq!(
+                    token,
+                    *len,
+                    f.len,
+                    "Expected token length to be {_l} character(s), is actually {_r} character(s)",
+                );
+                eq!(
+                    token,
+                    *len_byte,
+                    f.len_byte,
+                    "Expected token length to be {_l} byte(s), is actually {_r} byte(s)",
+                );
+            } else {
+                error!(token, "The token has not been finalised");
             }
         }
-        assert_eof(&tokens.last().unwrap(), &cur_loc, &cur_byte);
-    }
 
-    fn assert_eof(token: &Token, start_loc: &Loc, start_byte: &usize) {
-        assert(token, &TokenKind::Eof, &None, start_loc, start_byte, &0, &0);
-    }
+        pub fn assert_tokens(tokens: &[Token], values: &[Value]) {
+            assert_eq!(
+                tokens.len() - 1,
+                values.iter().filter(|x| x.kind.is_some()).count(),
+                "Expected non-filter `values` with the length of `tokens` length minus 1"
+            );
 
-    macro_rules! error {
-        ($token:expr, $($msg:tt)*) => {
-            panic!("{}: {}", $token.start_loc, format!($($msg)*));
-        };
-    }
+            let mut cur_loc = Loc::new(1, 1);
+            let mut cur_byte = 0;
+            let mut i = 0;
+            for value in values {
+                let token = &tokens[i];
 
-    macro_rules! eq {
-        ($token:expr, $left:expr, $right:expr) => {
-            if $left != $right {
-                error!(
-                    $token,
-                    "`{} == {}` failed\nExpected {:?}, got {:?}",
-                    stringify!($left),
-                    stringify!($right),
-                    $left,
-                    $right,
-                );
+                if let Some(ref k) = value.kind {
+                    assert(
+                        token,
+                        k,
+                        &value.data,
+                        &cur_loc,
+                        &cur_byte,
+                        &value.len,
+                        &value.len_byte,
+                    );
+
+                    i += 1;
+                }
+
+                cur_loc = Loc::new(cur_loc.line, cur_loc.col + value.len);
+                cur_byte += value.len_byte;
+
+                if token.kind == TokenKind::Newline {
+                    cur_loc.line += 1;
+                    cur_loc.col = 1;
+                }
             }
-        };
-        ($token:expr, $left:expr, $right:expr, $($msg:tt)*) => {
-            if $left != $right {
-                error!($token, $($msg)* _l = $left, _r = $right);
-            }
-        };
-    }
+            assert_eof(tokens.last().unwrap(), &cur_loc, &cur_byte);
+        }
 
-    fn assert(
-        token: &Token,
-        kind: &TokenKind,
-        data: &Option<TokenData>,
-        start_loc: &Loc,
-        start_byte: &usize,
-        len: &usize,
-        len_byte: &usize,
-    ) {
-        // NOTE: Keep track of fields
-        let _ = Token {
-            kind: TokenKind::default(),
-            start_loc: Loc::new(0, 0),
-            start_byte: 0,
-            finalised: Some(TokenFinalised {
-                data: None,
-                len: 0,
-                len_byte: 0,
-            }),
-        };
-
-        if let Some(ref f) = token.finalised {
-            eq!(
-                token,
-                *kind,
-                token.kind,
-                "Expected token kind to be {_l:?}, is actually {_r:?}",
-            );
-            eq!(
-                token,
-                *start_loc,
-                token.start_loc,
-                "Expected token to start at {_l}, actually at {_r}",
-            );
-            eq!(
-                token,
-                *start_byte,
-                token.start_byte,
-                "Expected token to start at byte {_l}, actually at byte {_r}",
-            );
-            eq!(
-                token,
-                *data,
-                f.data,
-                "Expected token data to be {_l:?}, is actually {_r:?}",
-            );
-            eq!(
-                token,
-                *len,
-                f.len,
-                "Expected token length to be {_l} character(s), is actually {_r} character(s)",
-            );
-            eq!(
-                token,
-                *len_byte,
-                f.len_byte,
-                "Expected token length to be {_l} byte(s), is actually {_r} byte(s)",
-            );
-        } else {
-            error!(token, "The token has not been finalised");
+        pub fn assert_eof(token: &Token, start_loc: &Loc, start_byte: &usize) {
+            assert(token, &TokenKind::Eof, &None, start_loc, start_byte, &0, &0);
         }
     }
+
+    use assert::{assert_tokens, values::*, Value};
 
     #[test]
     fn empty() {
@@ -631,16 +677,7 @@ mod test {
                 .collect::<String>();
 
             let tokens = Lexer::tokenise(&s).unwrap();
-            assert_tokens(
-                &tokens,
-                &[Value::new(
-                    TokenKind::Numeric,
-                    Some(TokenData::String(&s)),
-                    i,
-                    // The numbers should be ASCII...
-                    1 * i,
-                )],
-            );
+            assert_tokens(&tokens, &[numeric(&s)]);
         }
     }
 
@@ -648,10 +685,7 @@ mod test {
     fn unknown_token() {
         for i in 1..=10 {
             let s = (0..i).map(|_| '\r').collect::<String>();
-            let v = (0..i)
-                .map(|_| Value::new(TokenKind::Unknown, Some(TokenData::String("\r")), 1, 1))
-                .collect::<Vec<Value>>();
-
+            let v = (0..i).map(|_| unknown("\r")).collect::<Vec<Value>>();
             let tokens = Lexer::tokenise(&s).unwrap();
             assert_tokens(&tokens, &v);
         }
@@ -659,78 +693,39 @@ mod test {
 
     #[test]
     fn lone_newline() {
-        for s in &["\n", "\r\n"] {
-            let tokens = Lexer::tokenise(&s).unwrap();
-            assert_tokens(
-                &tokens,
-                &[Value::new(
-                    TokenKind::Newline,
-                    None,
-                    s.len(),
-                    // Should be ASCII
-                    1 * s.len(),
-                )],
-            );
+        for n in NEWLINES {
+            let tokens = Lexer::tokenise(n.into()).unwrap();
+            assert_tokens(&tokens, &[newline(n)]);
         }
     }
 
     #[test]
     fn newline_and_number() {
-        let number = || Value::new(TokenKind::Numeric, Some(TokenData::String("1024")), 4, 4);
-        let newline = |n: &str| {
-            Value::new(
-                TokenKind::Newline,
-                None,
-                n.len(),
-                // Should be ASCII
-                1 * n.len(),
-            )
-        };
-
-        for n in &["\n", "\r\n"] {
-            let s = format!("1024{n}");
+        for n in NEWLINES {
+            let s = format!("1024{}", n.into_str());
             let tokens = Lexer::tokenise(&s).unwrap();
-            assert_tokens(&tokens, &[number(), newline(n)]);
+            assert_tokens(&tokens, &[numeric("1024"), newline(n)]);
         }
 
-        for n in &["\n", "\r\n"] {
-            let s = format!("{n}1024");
+        for n in NEWLINES {
+            let s = format!("{}1024", n.into_str());
             let tokens = Lexer::tokenise(&s).unwrap();
-            assert_tokens(&tokens, &[newline(n), number()]);
+            assert_tokens(&tokens, &[newline(n), numeric("1024")]);
         }
     }
 
     #[test]
     fn token_string() {
-        let number = |n| {
-            Value::new(
-                TokenKind::Numeric,
-                Some(TokenData::String(n)),
-                4,
-                // ASCII
-                1 * 4,
-            )
-        };
-        let newline = || {
-            Value::new(
-                TokenKind::Newline,
-                None,
-                1,
-                // ASCII
-                1 * 1,
-            )
-        };
-
         let s = "1024\n2048\n";
-        let tokens = Lexer::tokenise(&s).unwrap();
+        let tokens = Lexer::tokenise(s).unwrap();
         assert_tokens(
             &tokens,
-            &[number("1024"), newline(), number("2048"), newline()],
+            &[numeric("1024"), unewline(), numeric("2048"), unewline()],
         );
 
         for (token, token_str) in tokens.iter().zip(&["1024", "\n", "2048", "\n"]) {
-            let bytes = token.bytes(&s.as_bytes()).unwrap();
-            let string = token.string(&s).unwrap();
+            let bytes = token.bytes(s.as_bytes()).unwrap();
+            let string = token.string(s).unwrap();
             assert_eq!(bytes, token_str.as_bytes());
             assert_eq!(string, *token_str);
         }
@@ -753,54 +748,55 @@ mod test {
 	    2
 "#;
 
-        let tokens = Lexer::tokenise(&s).unwrap();
+        let tokens = Lexer::tokenise(s).unwrap();
+
         assert_tokens(
             &tokens,
             &[
-                newline(),
-                number("0"),
-                newline(),
-                newline(),
+                unewline(),
+                numeric("0"),
+                unewline(),
+                unewline(),
                 indent(IndentKind::Space, 2),
-                number("1"),
+                numeric("1"),
                 filler(1, 1),
-                number("2"),
-                newline(),
+                numeric("2"),
+                unewline(),
                 indent(IndentKind::Space, 4),
-                number("3"),
+                numeric("3"),
                 filler(3, 3),
-                number("4"),
-                newline(),
+                numeric("4"),
+                unewline(),
                 indent(IndentKind::Space, 6),
-                number("5"),
+                numeric("5"),
                 filler(1, 1),
-                number("6"),
-                newline(),
+                numeric("6"),
+                unewline(),
                 indent(IndentKind::Space, 8),
-                number("7"),
+                numeric("7"),
                 filler(3, 3),
-                number("8"),
-                newline(),
-                newline(),
+                numeric("8"),
+                unewline(),
+                unewline(),
                 indent(IndentKind::Tab, 1),
-                number("1"),
+                numeric("1"),
                 filler(1, 1),
-                number("2"),
-                newline(),
+                numeric("2"),
+                unewline(),
                 indent(IndentKind::Tab, 2),
-                number("3"),
+                numeric("3"),
                 filler(1, 1),
-                number("4"),
-                newline(),
-                newline(),
+                numeric("4"),
+                unewline(),
+                unewline(),
                 indent(IndentKind::Space, 4),
                 filler(1, 1),
-                number("1"),
-                newline(),
+                numeric("1"),
+                unewline(),
                 indent(IndentKind::Tab, 1),
                 filler(4, 4),
-                number("2"),
-                newline(),
+                numeric("2"),
+                unewline(),
             ],
         );
     }
