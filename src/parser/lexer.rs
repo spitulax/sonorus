@@ -81,7 +81,6 @@ impl Token<'_> {
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum TokenData<'a> {
-    Number(f64),
     String(&'a str),
 }
 
@@ -279,8 +278,9 @@ impl<'a> Lexer<'a> {
 
         match self.cur_token.kind {
             TokenKind::Numeric => {
-                let number = self.cur_token_as_str()?.parse::<f64>()?;
-                self.push(Some(TokenData::Number(number)))?;
+                // It shouldn't be parsed here.
+                let s = self.cur_token_as_str()?;
+                self.push(Some(TokenData::String(s)))?;
             }
             TokenKind::Eof => {
                 self.push(None)?;
@@ -440,7 +440,7 @@ mod test {
                 &tokens,
                 &[Value::new(
                     TokenKind::Numeric,
-                    Some(TokenData::Number(s.parse().unwrap())),
+                    Some(TokenData::String(&s)),
                     i,
                     // The numbers should be ASCII...
                     1 * i,
@@ -481,7 +481,7 @@ mod test {
 
     #[test]
     fn newline_and_number() {
-        let number = || Value::new(TokenKind::Numeric, Some(TokenData::Number(1024.0)), 4, 4);
+        let number = || Value::new(TokenKind::Numeric, Some(TokenData::String("1024")), 4, 4);
         let newline = |n: &str| {
             Value::new(
                 TokenKind::Newline,
@@ -510,7 +510,7 @@ mod test {
         let number = |n| {
             Value::new(
                 TokenKind::Numeric,
-                Some(TokenData::Number(n)),
+                Some(TokenData::String(n)),
                 4,
                 // ASCII
                 1 * 4,
@@ -530,7 +530,7 @@ mod test {
         let tokens = Lexer::tokenise(&s).unwrap();
         assert_tokens(
             &tokens,
-            &[number(1024.0), newline(), number(2048.0), newline()],
+            &[number("1024"), newline(), number("2048"), newline()],
         );
 
         for (token, token_str) in tokens.iter().zip(&["1024", "\n", "2048", "\n"]) {
