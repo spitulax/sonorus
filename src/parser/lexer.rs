@@ -109,9 +109,9 @@ impl fmt::Display for Loc {
 
 #[derive(Copy, Clone, Default, Eq, PartialEq, Debug)]
 pub enum TokenKind {
-    #[default]
     /// # Data
     /// [`TokenData::String`]: The character (should only be a single character).
+    #[default]
     Unknown,
     /// # Data
     /// None.
@@ -125,13 +125,52 @@ pub enum TokenKind {
     /// # Data
     /// [`TokenData::String`]: The string representing the number.
     Numeric,
-    Identifier,
+    /// # Data
+    /// None.
     Colon,
+    /// # Data
+    /// None.
     Equals,
+    /// # Data
+    /// None.
     LBracket,
+    /// # Data
+    /// None.
     RBracket,
+    /// # Data
+    /// None.
     LParen,
+    /// # Data
+    /// None.
     RParen,
+    Identifier,
+}
+
+impl TokenKind {
+    //pub fn is_single_char(&self) -> bool {
+    //    match self {
+    //        Self::Colon
+    //        | Self::Equals
+    //        | Self::LBracket
+    //        | Self::RBracket
+    //        | Self::LParen
+    //        | Self::RParen => true,
+    //        _ => false,
+    //    }
+    //}
+
+    /// Get a single-character token kind.
+    pub fn char(c: char) -> Option<Self> {
+        match c {
+            ':' => Some(Self::Colon),
+            '=' => Some(Self::Equals),
+            '[' => Some(Self::LBracket),
+            ']' => Some(Self::RBracket),
+            '(' => Some(Self::LParen),
+            ')' => Some(Self::RParen),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
@@ -285,8 +324,8 @@ impl<'a> Lexer<'a> {
                 } else {
                     self.next()?;
                 }
-            } else {
-                todo!();
+            } else if let Some(k) = TokenKind::char(c) {
+                self.search(k);
             }
         } else {
             self.search(TokenKind::Eof);
@@ -297,7 +336,8 @@ impl<'a> Lexer<'a> {
 
     fn do_search(&mut self) -> Result<()> {
         if let Some(c) = self.cur_char {
-            // NOTE: Finalise any token when encountering newline
+            // NOTE: Tokens should be finalised when encountering newline
+
             match self.cur_token.kind {
                 // TODO: Floats?
                 TokenKind::Numeric => {
@@ -346,6 +386,15 @@ impl<'a> Lexer<'a> {
                         self.finalise();
                     }
                 }
+                TokenKind::Colon
+                | TokenKind::Equals
+                | TokenKind::LBracket
+                | TokenKind::RBracket
+                | TokenKind::LParen
+                | TokenKind::RParen => {
+                    self.next()?;
+                    self.finalise();
+                }
                 _ => todo!(),
             }
         } else {
@@ -380,6 +429,12 @@ impl<'a> Lexer<'a> {
                 self.push(Some(TokenData::String(s)))?;
             }
             TokenKind::Indent(_) => self.push_with_pending_data()?,
+            TokenKind::Colon
+            | TokenKind::Equals
+            | TokenKind::LBracket
+            | TokenKind::RBracket
+            | TokenKind::LParen
+            | TokenKind::RParen => self.push(None)?,
             _ => todo!(),
         }
 
@@ -456,6 +511,8 @@ mod test {
         }
 
         pub mod values {
+            use core::panic;
+
             use super::*;
 
             pub fn filler(len: usize, len_byte: usize) -> Value<'static> {
@@ -526,6 +583,21 @@ mod test {
                     s.chars().count(),
                     s.len(),
                 )
+            }
+
+            /// # Panics
+            /// Panics if the character is invalid. See [`TokenKind::char`].
+            pub fn single_char(c: char) -> Value<'static> {
+                if c.len_utf8() != 1 {
+                    panic!("Non ASCII character. Not yet needed");
+                }
+
+                if let Some(k) = TokenKind::char(c) {
+                    // Should be ASCII
+                    Value::new(k, None, 1, 1)
+                } else {
+                    panic!("Invalid character");
+                }
             }
         }
 
@@ -798,6 +870,34 @@ mod test {
                 numeric("2"),
                 unewline(),
             ],
+        );
+    }
+
+    #[test]
+    fn single_chars() {
+        // NOTE: Keep track of kinds
+        match TokenKind::default() {
+            TokenKind::Unknown
+            | TokenKind::Eof
+            | TokenKind::Indent(_)
+            | TokenKind::Newline
+            | TokenKind::Numeric
+            | TokenKind::Identifier
+
+            // Single-character
+            | TokenKind::Colon
+            | TokenKind::Equals
+            | TokenKind::LBracket
+            | TokenKind::RBracket
+            | TokenKind::LParen
+            | TokenKind::RParen => (),
+        }
+
+        let s = ":=[]()";
+        let tokens = Lexer::tokenise(s).unwrap();
+        assert_tokens(
+            &tokens,
+            &s.chars().map(|x| single_char(x)).collect::<Vec<Value>>(),
         );
     }
 }
