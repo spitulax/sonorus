@@ -3,7 +3,7 @@ use derive_more::{Display, From};
 use std::{
     iter::Peekable,
     num::ParseFloatError,
-    str::{from_utf8, Chars, Utf8Error},
+    str::{from_utf8, Chars},
 };
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -22,10 +22,9 @@ pub enum Error {
     /// Tried finalising at EOF for other than EOF token.
     #[display("Tried finalising at EOF for other than EOF token")]
     FinalisingEOF,
-
-    /// UTF-8 encoding errors.
-    #[display("UTF-8: {_0}")]
-    Utf8(Utf8Error),
+    /// Tried to construct an invalid UTF-8 string.
+    #[display("Tried to construct an invalid UTF-8 string")]
+    InvalidUtf8,
 
     /// Number parsing errors.
     #[display("Number parsing: {_0}")]
@@ -192,7 +191,7 @@ impl<'a> Lexer<'a> {
     }
 
     /// # Errors
-    /// This function will return [`Error::AdvancingAtEOF`] if it is used
+    /// Returns [`Error::AdvancingAtEOF`] if it is used
     /// when [`Self::cur_char`] is indicating EOF.
     fn next(&mut self) -> Result<()> {
         let c = if let Some(c) = self.cur_char {
@@ -207,13 +206,12 @@ impl<'a> Lexer<'a> {
     }
 
     /// # Errors
-    /// This function may return [`Error::Utf8`].
-    /// One possibility is [`Self::cur_byte`] is not incremented correctly,
-    /// thus this function may slice a character halfway through.
+    /// Returns [`Error::InvalidUtf8`] if [`Self::cur_byte`] is not incremented correctly,
+    /// thus this function may slice a character that's more than a byte halfway through.
     fn cur_token_as_str(&self) -> Result<&'a str> {
-        Ok(from_utf8(
-            &self.str.as_bytes()[self.cur_token.start_byte..self.cur_byte],
-        )?)
+        self.str
+            .get(self.cur_token.start_byte..self.cur_byte)
+            .ok_or(Error::InvalidUtf8)
     }
 
     fn do_new(&mut self) {
@@ -329,6 +327,7 @@ impl<'a> Lexer<'a> {
     }
 }
 
+// TODO: Test non-ASCII characters
 #[cfg(test)]
 mod test {
     use super::*;
