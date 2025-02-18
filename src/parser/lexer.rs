@@ -420,44 +420,27 @@ mod test {
 
     #[test]
     fn newline_and_number() {
+        let number = || Value {
+            kind: TokenKind::Numeric,
+            data: Some(TokenData::Number(1024.0)),
+            len: 4,
+        };
+        let newline = |n: &str| Value {
+            kind: TokenKind::Newline,
+            data: None,
+            len: n.len(),
+        };
+
         for n in &["\n", "\r\n"] {
             let s = format!("1024{n}");
             let tokens = Lexer::tokenise(&s).unwrap();
-            assert_tokens(
-                &tokens,
-                &[
-                    Value {
-                        kind: TokenKind::Numeric,
-                        data: Some(TokenData::Number(1024.0)),
-                        len: 4,
-                    },
-                    Value {
-                        kind: TokenKind::Newline,
-                        data: None,
-                        len: n.len(),
-                    },
-                ],
-            );
+            assert_tokens(&tokens, &[number(), newline(n)]);
         }
 
         for n in &["\n", "\r\n"] {
             let s = format!("{n}1024");
             let tokens = Lexer::tokenise(&s).unwrap();
-            assert_tokens(
-                &tokens,
-                &[
-                    Value {
-                        kind: TokenKind::Newline,
-                        data: None,
-                        len: n.len(),
-                    },
-                    Value {
-                        kind: TokenKind::Numeric,
-                        data: Some(TokenData::Number(1024.0)),
-                        len: 4,
-                    },
-                ],
-            );
+            assert_tokens(&tokens, &[newline(n), number()]);
         }
     }
 }
