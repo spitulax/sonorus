@@ -12,16 +12,16 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub enum Error {
     /// Tried advancing at EOF.
     #[display("Tried advancing at EOF")]
-    AdvancingAtEOF,
+    AdvancingAtEof,
     /// Searched EOF token before actually reaching EOF.
     #[display("Searched EOF token before actually reaching EOF")]
-    PrematureEOFToken,
+    PrematureEofToken,
     /// A token was separated by newline or empty.
     #[display("A token was separated by newline or empty")]
     UnfinalisedOrEmptyToken,
     /// Tried finalising at EOF for other than EOF token.
     #[display("Tried finalising at EOF for other than EOF token")]
-    FinalisingEOF,
+    FinalisingEof,
     /// Tried to construct an invalid UTF-8 string.
     #[display("Tried to construct an invalid UTF-8 string")]
     InvalidUtf8,
@@ -43,6 +43,8 @@ pub struct Token<'a> {
     finalised: Option<TokenFinalised<'a>>,
 }
 
+// TODO: We're not using it yet
+#[allow(dead_code)]
 impl<'a> Token<'_> {
     /// Returns [`Some`] only if the token is already finalised.
     pub fn bytes(&self, s: &'a [u8]) -> Option<&'a [u8]> {
@@ -100,7 +102,7 @@ impl Loc {
 pub enum TokenKind {
     #[default]
     Unknown,
-    EOF,
+    Eof,
     Indent,
     Newline,
     Identifier,
@@ -166,8 +168,8 @@ impl<'a> Lexer<'a> {
     }
 
     fn finalise_token(&self, data: Option<TokenData<'a>>) -> Result<Token<'a>> {
-        // NOTE: Only `TokenKind::EOF` is zero-sized
-        if self.cur_token.kind != TokenKind::EOF && self.cur_loc.col <= self.cur_token.start_loc.col
+        // NOTE: Only `TokenKind::Eof` is zero-sized
+        if self.cur_token.kind != TokenKind::Eof && self.cur_loc.col <= self.cur_token.start_loc.col
         {
             return Err(Error::UnfinalisedOrEmptyToken);
         }
@@ -191,13 +193,13 @@ impl<'a> Lexer<'a> {
     }
 
     /// # Errors
-    /// Returns [`Error::AdvancingAtEOF`] if it is used
-    /// when [`Self::cur_char`] is indicating EOF.
+    /// Returns [`Error::AdvancingAtEof`] if it is used
+    /// when [`Self::cur_char`] is indicating Eof.
     fn next(&mut self) -> Result<()> {
         let c = if let Some(c) = self.cur_char {
             c
         } else {
-            return Err(Error::AdvancingAtEOF);
+            return Err(Error::AdvancingAtEof);
         };
         self.cur_byte += c.len_utf8();
         self.cur_loc.col += 1;
@@ -224,7 +226,7 @@ impl<'a> Lexer<'a> {
                 todo!();
             }
         } else {
-            self.search(TokenKind::EOF);
+            self.search(TokenKind::Eof);
         }
     }
 
@@ -240,7 +242,7 @@ impl<'a> Lexer<'a> {
                         self.next()?;
                     }
                 }
-                TokenKind::EOF => return Err(Error::PrematureEOFToken),
+                TokenKind::Eof => return Err(Error::PrematureEofToken),
                 TokenKind::Newline => {
                     if c == '\r' {
                         let next = self.iter.peek().cloned().unwrap_or('\0');
@@ -270,7 +272,7 @@ impl<'a> Lexer<'a> {
     }
 
     /// # Return
-    /// This function returns `true` if it reaches EOF.
+    /// This function returns `true` if it reaches Eof.
     fn do_finalise(&mut self) -> Result<bool> {
         //let start_loc = self.cur_token.start_loc;
         //let end_loc = self.cur_loc;
@@ -280,7 +282,7 @@ impl<'a> Lexer<'a> {
                 let number = self.cur_token_as_str()?.parse::<f64>()?;
                 self.push(Some(TokenData::Number(number)))?;
             }
-            TokenKind::EOF => {
+            TokenKind::Eof => {
                 self.push(None)?;
                 return Ok(true);
             }
@@ -386,7 +388,7 @@ mod test {
     }
 
     fn assert_eof(token: &Token, start_loc: &Loc, start_byte: &usize) {
-        assert(token, &TokenKind::EOF, &None, start_loc, start_byte, &0, &0);
+        assert(token, &TokenKind::Eof, &None, start_loc, start_byte, &0, &0);
     }
 
     fn assert(
