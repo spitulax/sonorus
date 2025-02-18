@@ -1,8 +1,9 @@
-pub const NUMERIC: CharsLUT = chars_lut(b"0123456789");
-pub const NEWLINE: CharsLUT = chars_lut(b"\n\r");
+pub const NUMERIC: CharsLut = chars_lut(b"0123456789");
+pub const NEWLINE: CharsLut = chars_lut(b"\n\r");
+pub const INDENT: CharsLut = chars_lut(b" \t");
 
-pub struct CharsLUT([bool; 256]);
-impl CharsLUT {
+pub struct CharsLut([bool; 256]);
+impl CharsLut {
     pub const fn contains(&self, needle: char) -> bool {
         self.0[needle as usize]
     }
@@ -12,7 +13,7 @@ impl CharsLUT {
     //}
 }
 
-const fn chars_lut(chars: &[u8]) -> CharsLUT {
+const fn chars_lut(chars: &[u8]) -> CharsLut {
     let mut res = [false; 256];
 
     let mut i = 0;
@@ -21,5 +22,5 @@ const fn chars_lut(chars: &[u8]) -> CharsLUT {
         i += 1;
     }
 
-    CharsLUT(res)
+    CharsLut(res)
 }
