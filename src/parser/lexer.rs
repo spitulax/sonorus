@@ -35,22 +35,45 @@ pub enum Error {
 #[derive(Default, Debug, PartialEq)]
 pub struct Token<'a> {
     kind: TokenKind,
-    data: Option<TokenData<'a>>,
 
     /// `start_loc` points at the first character.
     start_loc: Loc,
     start_byte: usize,
+
+    /// [`Some`] after the token has been finalised.
+    finalised: Option<TokenFinalised<'a>>,
+}
+
+impl<'a> Token<'_> {
+    /// Returns [`Some`] only if the token is already finalised.
+    pub fn bytes(&self, s: &'a [u8]) -> Option<&'a [u8]> {
+        self.finalised
+            .as_ref()
+            .map(|f| &s[self.start_byte..self.start_byte + f.len_byte])
+    }
+
+    /// Returns [`Some`] only if the token is already finalised and the resulting slice is a valid UTF-8.
+    pub fn string(&self, s: &'a str) -> Option<&'a str> {
+        self.bytes(s.as_bytes()).and_then(|b| from_utf8(b).ok())
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub struct TokenFinalised<'a> {
+    data: Option<TokenData<'a>>,
+    /// Length in characters
     len: usize,
+    /// Length in bytes
+    len_byte: usize,
 }
 
 impl Token<'_> {
     pub fn new(kind: TokenKind, start_loc: Loc, start_byte: usize) -> Self {
         Self {
             kind,
-            data: None,
             start_loc,
             start_byte,
-            len: 0,
+            finalised: None,
         }
     }
 }
@@ -151,11 +174,14 @@ impl<'a> Lexer<'a> {
         }
 
         Ok(Token {
-            data,
             kind: self.cur_token.kind,
             start_loc: self.cur_token.start_loc,
             start_byte: self.cur_token.start_byte,
-            len: self.cur_loc.col - self.cur_token.start_loc.col,
+            finalised: Some(TokenFinalised {
+                data,
+                len: self.cur_loc.col - self.cur_token.start_loc.col,
+                len_byte: self.cur_byte - self.cur_token.start_byte,
+            }),
         })
     }
 
@@ -182,8 +208,8 @@ impl<'a> Lexer<'a> {
 
     /// # Errors
     /// This function may return [`Error::Utf8`].
-    /// One possibility is [`Self::i`] is not incremented correctly,
-    /// thus this function may slice a character halfway.
+    /// One possibility is [`Self::cur_byte`] is not incremented correctly,
+    /// thus this function may slice a character halfway through.
     fn cur_token_as_str(&self) -> Result<&'a str> {
         Ok(from_utf8(
             &self.str.as_bytes()[self.cur_token.start_byte..self.cur_byte],
@@ -311,6 +337,23 @@ mod test {
         kind: TokenKind,
         data: Option<TokenData<'a>>,
         len: usize,
+        len_byte: usize,
+    }
+
+    impl<'a> Value<'a> {
+        pub fn new(
+            kind: TokenKind,
+            data: Option<TokenData<'a>>,
+            len: usize,
+            len_byte: usize,
+        ) -> Self {
+            Self {
+                kind,
+                data,
+                len,
+                len_byte,
+            }
+        }
     }
 
     fn assert_tokens(tokens: &[Token], values: &[Value]) {
@@ -321,44 +364,61 @@ mod test {
         );
 
         let mut cur_loc = Loc::new(1, 1);
+        let mut cur_byte = 0;
         for (token, value) in tokens.iter().zip(values) {
-            let end_loc = Loc::new(cur_loc.line, cur_loc.col + value.len);
-            assert(token, &value.kind, &value.data, &cur_loc, &value.len);
-            cur_loc = end_loc;
+            assert(
+                token,
+                &value.kind,
+                &value.data,
+                &cur_loc,
+                &cur_byte,
+                &value.len,
+                &value.len_byte,
+            );
+            cur_loc = Loc::new(cur_loc.line, cur_loc.col + value.len);
+            cur_byte += value.len_byte;
 
             if token.kind == TokenKind::Newline {
                 cur_loc.line += 1;
                 cur_loc.col = 1;
             }
         }
-        assert_eof(&tokens.last().unwrap(), &cur_loc);
+        assert_eof(&tokens.last().unwrap(), &cur_loc, &cur_byte);
     }
 
-    fn assert_eof(token: &Token, start_loc: &Loc) {
-        assert(token, &TokenKind::EOF, &None, start_loc, &0);
+    fn assert_eof(token: &Token, start_loc: &Loc, start_byte: &usize) {
+        assert(token, &TokenKind::EOF, &None, start_loc, start_byte, &0, &0);
     }
 
-    // NOTE: Ignoring `start_byte`
     fn assert(
         token: &Token,
         kind: &TokenKind,
         data: &Option<TokenData>,
         start_loc: &Loc,
+        start_byte: &usize,
         len: &usize,
+        len_byte: &usize,
     ) {
         // NOTE: Keep track of fields
         let _ = Token {
             kind: TokenKind::default(),
-            data: None,
             start_loc: Loc::new(0, 0),
-            len: 0,
             start_byte: 0,
+            finalised: Some(TokenFinalised {
+                data: None,
+                len: 0,
+                len_byte: 0,
+            }),
         };
 
+        assert!(token.finalised.is_some(), "The token is not finalised");
+        let f = token.finalised.as_ref().unwrap();
         assert_eq!(token.kind, *kind);
-        assert_eq!(token.data, *data);
         assert_eq!(token.start_loc, *start_loc);
-        assert_eq!(token.len, *len);
+        assert_eq!(token.start_byte, *start_byte);
+        assert_eq!(f.data, *data);
+        assert_eq!(f.len, *len);
+        assert_eq!(f.len_byte, *len_byte);
     }
 
     #[test]
@@ -377,11 +437,13 @@ mod test {
             let tokens = Lexer::tokenise(&s).unwrap();
             assert_tokens(
                 &tokens,
-                &[Value {
-                    kind: TokenKind::Numeric,
-                    data: Some(TokenData::Number(s.parse().unwrap())),
-                    len: i,
-                }],
+                &[Value::new(
+                    TokenKind::Numeric,
+                    Some(TokenData::Number(s.parse().unwrap())),
+                    i,
+                    // The numbers should be ASCII...
+                    1 * i,
+                )],
             );
         }
     }
@@ -391,11 +453,7 @@ mod test {
         for i in 1..=10 {
             let s = (0..i).map(|_| '\r').collect::<String>();
             let v = (0..i)
-                .map(|_| Value {
-                    kind: TokenKind::Unknown,
-                    data: Some(TokenData::String("\r")),
-                    len: 1,
-                })
+                .map(|_| Value::new(TokenKind::Unknown, Some(TokenData::String("\r")), 1, 1))
                 .collect::<Vec<Value>>();
 
             let tokens = Lexer::tokenise(&s).unwrap();
@@ -409,26 +467,28 @@ mod test {
             let tokens = Lexer::tokenise(&s).unwrap();
             assert_tokens(
                 &tokens,
-                &[Value {
-                    kind: TokenKind::Newline,
-                    data: None,
-                    len: s.len(),
-                }],
+                &[Value::new(
+                    TokenKind::Newline,
+                    None,
+                    s.len(),
+                    // Should be ASCII
+                    1 * s.len(),
+                )],
             );
         }
     }
 
     #[test]
     fn newline_and_number() {
-        let number = || Value {
-            kind: TokenKind::Numeric,
-            data: Some(TokenData::Number(1024.0)),
-            len: 4,
-        };
-        let newline = |n: &str| Value {
-            kind: TokenKind::Newline,
-            data: None,
-            len: n.len(),
+        let number = || Value::new(TokenKind::Numeric, Some(TokenData::Number(1024.0)), 4, 4);
+        let newline = |n: &str| {
+            Value::new(
+                TokenKind::Newline,
+                None,
+                n.len(),
+                // Should be ASCII
+                1 * n.len(),
+            )
         };
 
         for n in &["\n", "\r\n"] {
@@ -441,6 +501,42 @@ mod test {
             let s = format!("{n}1024");
             let tokens = Lexer::tokenise(&s).unwrap();
             assert_tokens(&tokens, &[newline(n), number()]);
+        }
+    }
+
+    #[test]
+    fn token_string() {
+        let number = |n| {
+            Value::new(
+                TokenKind::Numeric,
+                Some(TokenData::Number(n)),
+                4,
+                // ASCII
+                1 * 4,
+            )
+        };
+        let newline = || {
+            Value::new(
+                TokenKind::Newline,
+                None,
+                1,
+                // ASCII
+                1 * 1,
+            )
+        };
+
+        let s = "1024\n2048\n";
+        let tokens = Lexer::tokenise(&s).unwrap();
+        assert_tokens(
+            &tokens,
+            &[number(1024.0), newline(), number(2048.0), newline()],
+        );
+
+        for (token, token_str) in tokens.iter().zip(&["1024", "\n", "2048", "\n"]) {
+            let bytes = token.bytes(&s.as_bytes()).unwrap();
+            let string = token.string(&s).unwrap();
+            assert_eq!(bytes, token_str.as_bytes());
+            assert_eq!(string, *token_str);
         }
     }
 }
