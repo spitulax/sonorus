@@ -758,7 +758,7 @@ mod test {
             assert_eq!(
                 tokens.len() - 1,
                 values.iter().filter(|x| x.kind.is_some()).count(),
-                "{}", format!("Expected non-filter `values` with the length of `tokens` length minus 1\nActual tokens: {:#?}", tokens)
+                "Expected non-filter `values` with the length of `tokens` length minus 1\nActual tokens: {:#?}", tokens
             );
 
             let mut cur_loc = Loc::new(1, 1);
@@ -960,10 +960,7 @@ mod test {
 
         let s = ":=[]()";
         let tokens = Lexer::tokenise(s).unwrap();
-        assert_tokens(
-            &tokens,
-            &s.chars().map(|x| single_char(x)).collect::<Vec<Value>>(),
-        );
+        assert_tokens(&tokens, &s.chars().map(single_char).collect::<Vec<Value>>());
     }
 
     #[test]
