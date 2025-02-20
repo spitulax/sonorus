@@ -39,6 +39,17 @@ pub struct Token<'a> {
     finalised: Option<TokenFinalised<'a>>,
 }
 
+impl fmt::Display for Token<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "({:?}, {}", self.kind, self.start_loc)?;
+        if let Some(ref fin) = self.finalised {
+            write!(f, ", {:?}", fin.data)?;
+        }
+        write!(f, ")")?;
+        Ok(())
+    }
+}
+
 // TODO: We're not using it yet
 #[allow(dead_code)]
 impl<'a> Token<'_> {
