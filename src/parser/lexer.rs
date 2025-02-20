@@ -143,7 +143,12 @@ pub enum TokenKind {
     /// # Data
     /// None.
     RParen,
+    /// # Data
+    /// [`TokenData::String`]: The identifier string.
     Identifier,
+    /// # Data
+    /// [`TokenData::String`]: The identifier string (character by character, including the quotes).
+    QuotedIdent,
 }
 
 impl TokenKind {
@@ -217,6 +222,8 @@ pub struct Lexer<'a> {
 
     /// Token data constructed before finalisation.
     pending_data: Option<TokenData<'a>>,
+
+    inside_quotes: bool,
 }
 
 impl<'a> Lexer<'a> {
@@ -232,6 +239,7 @@ impl<'a> Lexer<'a> {
             cur_char: None,
             tokens: vec![],
             pending_data: None,
+            inside_quotes: false,
         };
         ret.cur_char = ret.iter.next();
 
@@ -282,6 +290,12 @@ impl<'a> Lexer<'a> {
         Ok(())
     }
 
+    fn push_with_token_str(&mut self) -> Result<()> {
+        let s = self.cur_token_as_str()?;
+        self.push(Some(TokenData::String(s)))?;
+        Ok(())
+    }
+
     /// # Errors
     /// Returns [`Error::AdvancingAtEof`] if it is used
     /// when [`Self::cur_char`] is indicating Eof.
@@ -326,6 +340,11 @@ impl<'a> Lexer<'a> {
                 }
             } else if let Some(k) = TokenKind::char(c) {
                 self.search(k);
+            } else if c == '"' {
+                // Escaping should be done after tokenising.
+                self.search(TokenKind::QuotedIdent);
+            } else if is_valid_ident(c) {
+                todo!();
             }
         } else {
             self.search(TokenKind::Eof);
@@ -395,6 +414,20 @@ impl<'a> Lexer<'a> {
                     self.next()?;
                     self.finalise();
                 }
+                TokenKind::QuotedIdent => {
+                    if c == '"' {
+                        if !self.inside_quotes {
+                            self.inside_quotes = true;
+                            self.next()?;
+                        } else {
+                            self.inside_quotes = false;
+                            self.next()?;
+                            self.finalise();
+                        }
+                    } else if self.inside_quotes {
+                        self.next()?;
+                    }
+                }
                 _ => todo!(),
             }
         } else {
@@ -410,11 +443,8 @@ impl<'a> Lexer<'a> {
         //let end_loc = self.cur_loc;
 
         match self.cur_token.kind {
-            TokenKind::Numeric => {
-                // It shouldn't be parsed here.
-                let s = self.cur_token_as_str()?;
-                self.push(Some(TokenData::String(s)))?;
-            }
+            // It shouldn't be parsed here.
+            TokenKind::Numeric => self.push_with_token_str()?,
             TokenKind::Eof => {
                 self.push(None)?;
                 return Ok(true);
@@ -424,10 +454,7 @@ impl<'a> Lexer<'a> {
                 self.cur_loc.line += 1;
                 self.cur_loc.col = 1;
             }
-            TokenKind::Unknown => {
-                let s = self.cur_token_as_str()?;
-                self.push(Some(TokenData::String(s)))?;
-            }
+            TokenKind::Unknown => self.push_with_token_str()?,
             TokenKind::Indent(_) => self.push_with_pending_data()?,
             TokenKind::Colon
             | TokenKind::Equals
@@ -435,6 +462,8 @@ impl<'a> Lexer<'a> {
             | TokenKind::RBracket
             | TokenKind::LParen
             | TokenKind::RParen => self.push(None)?,
+            // NOTE: The [`TokenData`] still contains the quotes.
+            TokenKind::QuotedIdent => self.push_with_token_str()?,
             _ => todo!(),
         }
 
@@ -467,6 +496,13 @@ impl<'a> Lexer<'a> {
             lexer.cur_state = lexer.next_state;
         }
     }
+}
+
+/// # Valid Characters
+/// All characters are valid to be part of (unquoted) identifier except control characters, tab,
+/// and space. These invalid characters can act like separators.
+fn is_valid_ident(c: char) -> bool {
+    !(c.is_control() || lut::INDENT.contains(c))
 }
 
 // TODO: Test non-ASCII characters
@@ -511,8 +547,6 @@ mod test {
         }
 
         pub mod values {
-            use core::panic;
-
             use super::*;
 
             pub fn filler(len: usize, len_byte: usize) -> Value<'static> {
@@ -598,6 +632,19 @@ mod test {
                 } else {
                     panic!("Invalid character");
                 }
+            }
+
+            /// Automatically surround with quotes
+            pub fn quoted_ident(s: &str) -> Value {
+                // MAYBE: Use this <https://doc.rust-lang.org/beta/std/primitive.str.html#method.escape_debug>?
+                // But I'm not sure what it escapes.
+                let quoted = format!("\"{s}\"").leak();
+                Value::new(
+                    TokenKind::QuotedIdent,
+                    Some(TokenData::String(quoted)),
+                    quoted.chars().count(),
+                    quoted.len(),
+                )
             }
         }
 
@@ -694,7 +741,7 @@ mod test {
             assert_eq!(
                 tokens.len() - 1,
                 values.iter().filter(|x| x.kind.is_some()).count(),
-                "Expected non-filter `values` with the length of `tokens` length minus 1"
+                "{}", format!("Expected non-filter `values` with the length of `tokens` length minus 1\nActual tokens: {:#?}", tokens)
             );
 
             let mut cur_loc = Loc::new(1, 1);
@@ -883,6 +930,7 @@ mod test {
             | TokenKind::Newline
             | TokenKind::Numeric
             | TokenKind::Identifier
+            | TokenKind::QuotedIdent
 
             // Single-character
             | TokenKind::Colon
@@ -898,6 +946,25 @@ mod test {
         assert_tokens(
             &tokens,
             &s.chars().map(|x| single_char(x)).collect::<Vec<Value>>(),
+        );
+    }
+
+    #[test]
+    fn quoted_identifier() {
+        let s = r#""foo""bar"
+"baz"
+"foo\tbar\nbaz""#;
+        let tokens = Lexer::tokenise(s).unwrap();
+        assert_tokens(
+            &tokens,
+            &[
+                quoted_ident("foo"),
+                quoted_ident("bar"),
+                unewline(),
+                quoted_ident("baz"),
+                unewline(),
+                quoted_ident("foo\\tbar\\nbaz"),
+            ],
         );
     }
 }
