@@ -344,7 +344,9 @@ impl<'a> Lexer<'a> {
                 // Escaping should be done after tokenising.
                 self.search(TokenKind::QuotedIdent);
             } else if is_valid_ident(c) {
-                todo!();
+                self.search(TokenKind::Identifier);
+            } else {
+                self.next()?;
             }
         } else {
             self.search(TokenKind::Eof);
@@ -428,7 +430,13 @@ impl<'a> Lexer<'a> {
                         self.next()?;
                     }
                 }
-                _ => todo!(),
+                TokenKind::Identifier => {
+                    if is_valid_ident(c) {
+                        self.next()?;
+                    } else {
+                        self.finalise();
+                    }
+                }
             }
         } else {
             self.finalise();
@@ -443,8 +451,19 @@ impl<'a> Lexer<'a> {
         //let end_loc = self.cur_loc;
 
         match self.cur_token.kind {
-            // It shouldn't be parsed here.
-            TokenKind::Numeric => self.push_with_token_str()?,
+            // Numeric tokens should not be parsed here.
+            TokenKind::Numeric
+            // The [`TokenData`] still contains the quotes.
+            | TokenKind::QuotedIdent
+            | TokenKind::Identifier
+            | TokenKind::Unknown => self.push_with_token_str()?,
+            TokenKind::Colon
+            | TokenKind::Equals
+            | TokenKind::LBracket
+            | TokenKind::RBracket
+            | TokenKind::LParen
+            | TokenKind::RParen => self.push(None)?,
+            TokenKind::Indent(_) => self.push_with_pending_data()?,
             TokenKind::Eof => {
                 self.push(None)?;
                 return Ok(true);
@@ -454,17 +473,6 @@ impl<'a> Lexer<'a> {
                 self.cur_loc.line += 1;
                 self.cur_loc.col = 1;
             }
-            TokenKind::Unknown => self.push_with_token_str()?,
-            TokenKind::Indent(_) => self.push_with_pending_data()?,
-            TokenKind::Colon
-            | TokenKind::Equals
-            | TokenKind::LBracket
-            | TokenKind::RBracket
-            | TokenKind::LParen
-            | TokenKind::RParen => self.push(None)?,
-            // NOTE: The [`TokenData`] still contains the quotes.
-            TokenKind::QuotedIdent => self.push_with_token_str()?,
-            _ => todo!(),
         }
 
         Ok(false)
@@ -644,6 +652,15 @@ mod test {
                     Some(TokenData::String(quoted)),
                     quoted.chars().count(),
                     quoted.len(),
+                )
+            }
+
+            pub fn ident(s: &str) -> Value {
+                Value::new(
+                    TokenKind::Identifier,
+                    Some(TokenData::String(s)),
+                    s.chars().count(),
+                    s.len(),
                 )
             }
         }
@@ -964,6 +981,29 @@ mod test {
                 quoted_ident("baz"),
                 unewline(),
                 quoted_ident("foo\\tbar\\nbaz"),
+            ],
+        );
+    }
+
+    #[test]
+    fn identifier() {
+        let s = "foo\tbar\nbaz\rquux 1337 \"420\"\n";
+        let tokens = Lexer::tokenise(s).unwrap();
+        assert_tokens(
+            &tokens,
+            &[
+                ident("foo"),
+                filler(1, 1),
+                ident("bar"),
+                unewline(),
+                ident("baz"),
+                unknown("\r"),
+                ident("quux"),
+                filler(1, 1),
+                numeric("1337"),
+                filler(1, 1),
+                quoted_ident("420"),
+                unewline(),
             ],
         );
     }

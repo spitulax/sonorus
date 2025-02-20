@@ -1,5 +1,6 @@
 pub const NUMERIC: CharsLut = chars_lut(b"0123456789");
 pub const NEWLINE: CharsLut = chars_lut(b"\n\r");
+/// Also functions as identifier separator (newline separate).
 pub const INDENT: CharsLut = chars_lut(b" \t");
 
 pub struct CharsLut([bool; 256]);
