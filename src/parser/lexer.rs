@@ -125,6 +125,8 @@ pub enum TokenKind {
     /// # Data
     /// [`TokenData::String`]: The identifier string (character by character, including the quotes).
     QuotedIdent,
+    DollarSign,
+    Question,
 }
 
 impl TokenKind {
@@ -149,6 +151,8 @@ impl TokenKind {
             ']' => Some(Self::RBracket),
             '(' => Some(Self::LParen),
             ')' => Some(Self::RParen),
+            '$' => Some(Self::DollarSign),
+            '?' => Some(Self::Question),
             _ => None,
         }
     }
@@ -388,7 +392,9 @@ impl<'a> Lexer<'a> {
                 | TokenKind::LBracket
                 | TokenKind::RBracket
                 | TokenKind::LParen
-                | TokenKind::RParen => {
+                | TokenKind::RParen
+                | TokenKind::DollarSign
+                | TokenKind::Question => {
                     self.next()?;
                     self.finalise();
                 }
@@ -438,7 +444,9 @@ impl<'a> Lexer<'a> {
             | TokenKind::LBracket
             | TokenKind::RBracket
             | TokenKind::LParen
-            | TokenKind::RParen => self.push(None)?,
+            | TokenKind::RParen
+            | TokenKind::DollarSign
+            | TokenKind::Question => self.push(None)?,
             TokenKind::Indent(_) => self.push_with_pending_data()?,
             TokenKind::Eof => {
                 self.push(None)?;
@@ -486,7 +494,7 @@ impl<'a> Lexer<'a> {
 /// All characters are valid to be part of (unquoted) identifier except control characters, tab,
 /// and space. These invalid characters can act like separators.
 fn is_valid_ident(c: char) -> bool {
-    !(c.is_control() || lut::INDENT.contains(c))
+    !(c.is_control() || lut::INDENT.contains(c) || TokenKind::char(c).is_some())
 }
 
 // TODO: Test non-ASCII characters
@@ -931,10 +939,12 @@ mod test {
             | TokenKind::LBracket
             | TokenKind::RBracket
             | TokenKind::LParen
-            | TokenKind::RParen => (),
+            | TokenKind::RParen
+            | TokenKind::DollarSign
+            | TokenKind::Question => (),
         }
 
-        let s = ":=[]()";
+        let s = ":=[]()$?";
         let tokens = Lexer::tokenise(s).unwrap();
         assert_tokens(&tokens, &s.chars().map(single_char).collect::<Vec<Value>>());
     }
@@ -960,7 +970,7 @@ mod test {
 
     #[test]
     fn identifier() {
-        let s = "foo\tbar\nbaz\rquux 1337 \"420\"\n";
+        let s = "foo\tbar\nbaz\rquux? 1337 \"420\"\n";
         let tokens = Lexer::tokenise(s).unwrap();
         assert_tokens(
             &tokens,
@@ -972,6 +982,7 @@ mod test {
                 ident("baz"),
                 unknown("\r"),
                 ident("quux"),
+                single_char('?'),
                 filler(1, 1),
                 numeric("1337"),
                 filler(1, 1),
