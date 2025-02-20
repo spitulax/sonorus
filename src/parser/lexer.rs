@@ -3,7 +3,6 @@ use derive_more::{Display, From};
 use std::{
     fmt,
     iter::Peekable,
-    num::ParseFloatError,
     str::{from_utf8, Chars},
 };
 
@@ -20,19 +19,12 @@ pub enum Error {
     /// A token was separated by newline or empty.
     #[display("A token was separated by newline or empty")]
     UnfinalisedOrEmptyToken,
-    /// Tried finalising at EOF for other than EOF token.
-    #[display("Tried finalising at EOF for other than EOF token")]
-    FinalisingEof,
     /// Tried to construct an invalid UTF-8 string.
     #[display("Tried to construct an invalid UTF-8 string")]
     InvalidUtf8,
     /// Tried to access invalid pending data for the current token.
     #[display("Tried to access invalid pending data for {_0:?}")]
     InvalidPendingData(TokenKind),
-
-    /// Number parsing errors.
-    #[display("Number parsing: {_0}")]
-    ParseFloat(ParseFloatError),
 }
 
 #[derive(Default, Debug, PartialEq)]
