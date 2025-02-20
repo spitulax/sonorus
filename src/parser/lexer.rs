@@ -139,6 +139,10 @@ pub enum TokenKind {
     DollarSign,
     Question,
     Period,
+    /// # Data
+    /// [`TokenData::String`]: The comment string (including the opening hash symbol).
+    // TODO: Multiline comment?
+    Comment,
 }
 
 impl TokenKind {
@@ -315,7 +319,9 @@ impl<'a> Lexer<'a> {
 
     fn do_new(&mut self) -> Result<()> {
         if let Some(c) = self.cur_char {
-            if lut::NUMERIC.contains(c) {
+            if c == '#' {
+                self.search(TokenKind::Comment);
+            } else if lut::NUMERIC.contains(c) {
                 self.search(TokenKind::Numeric);
             } else if lut::NEWLINE.contains(c) {
                 self.search(TokenKind::Newline);
@@ -433,6 +439,13 @@ impl<'a> Lexer<'a> {
                         self.finalise();
                     }
                 }
+                TokenKind::Comment => {
+                    if !lut::NEWLINE.contains(c) {
+                        self.next()?;
+                    } else {
+                        self.finalise();
+                    }
+                }
             }
         } else {
             self.finalise();
@@ -472,6 +485,7 @@ impl<'a> Lexer<'a> {
                 self.cur_loc.line += 1;
                 self.cur_loc.col = 1;
             }
+            TokenKind::Comment => self.push_with_token_str()?,
         }
 
         Ok(false)
@@ -657,6 +671,16 @@ mod test {
             pub fn ident(s: &str) -> Value {
                 Value::new(
                     TokenKind::Identifier,
+                    Some(TokenData::String(s)),
+                    s.chars().count(),
+                    s.len(),
+                )
+            }
+
+            /// Include the hash sign.
+            pub fn comment(s: &str) -> Value {
+                Value::new(
+                    TokenKind::Comment,
                     Some(TokenData::String(s)),
                     s.chars().count(),
                     s.len(),
@@ -947,6 +971,7 @@ mod test {
             | TokenKind::Numeric
             | TokenKind::Identifier
             | TokenKind::QuotedIdent
+            | TokenKind::Comment
 
             // Single-character
             | TokenKind::Colon
@@ -1006,5 +1031,30 @@ mod test {
                 unewline(),
             ],
         );
+    }
+
+    #[test]
+    fn comments() {
+        let s = r#"
+# Hello, World!
+comment # Mid-line
+"#;
+
+        for n in NEWLINES {
+            let actual_s = s.replace("\n", n.into());
+            let tokens = Lexer::tokenise(&actual_s).unwrap();
+            assert_tokens(
+                &tokens,
+                &[
+                    newline(n),
+                    comment("# Hello, World!"),
+                    newline(n),
+                    ident("comment"),
+                    filler(1, 1),
+                    comment("# Mid-line"),
+                    newline(n),
+                ],
+            );
+        }
     }
 }
