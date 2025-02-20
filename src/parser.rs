@@ -10,8 +10,10 @@ use lexer::Lexer;
 
 pub fn main(args: &Args) -> Result<()> {
     let content = read_to_string(&args.changes_file)?;
-    let tokens = Lexer::tokenise(&content);
-    println!("{tokens:#?}");
+    let tokens = Lexer::tokenise(&content)?;
+    for t in tokens {
+        println!("{t}");
+    }
 
     Ok(())
 }

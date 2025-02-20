@@ -139,4 +139,4 @@ Def sonorant: consonant[manner=sonorant]
 #     Field:
 #         stress: Bool
 #     Initial:
-#         ($fricative? $plosive? )
+#         ($fricative? $plosive?)
