@@ -138,6 +138,7 @@ pub enum TokenKind {
     QuotedIdent,
     DollarSign,
     Question,
+    Period,
 }
 
 impl TokenKind {
@@ -164,6 +165,7 @@ impl TokenKind {
             ')' => Some(Self::RParen),
             '$' => Some(Self::DollarSign),
             '?' => Some(Self::Question),
+            '.' => Some(Self::Period),
             _ => None,
         }
     }
@@ -405,7 +407,8 @@ impl<'a> Lexer<'a> {
                 | TokenKind::LParen
                 | TokenKind::RParen
                 | TokenKind::DollarSign
-                | TokenKind::Question => {
+                | TokenKind::Question
+                | TokenKind::Period => {
                     self.next()?;
                     self.finalise();
                 }
@@ -457,7 +460,8 @@ impl<'a> Lexer<'a> {
             | TokenKind::LParen
             | TokenKind::RParen
             | TokenKind::DollarSign
-            | TokenKind::Question => self.push(None)?,
+            | TokenKind::Question
+            | TokenKind::Period => self.push(None)?,
             TokenKind::Indent(_) => self.push_with_pending_data()?,
             TokenKind::Eof => {
                 self.push(None)?;
@@ -952,10 +956,11 @@ mod test {
             | TokenKind::LParen
             | TokenKind::RParen
             | TokenKind::DollarSign
-            | TokenKind::Question => (),
+            | TokenKind::Question
+            | TokenKind::Period => (),
         }
 
-        let s = ":=[]()$?";
+        let s = ":=[]()$?.";
         let tokens = Lexer::tokenise(s).unwrap();
         assert_tokens(&tokens, &s.chars().map(single_char).collect::<Vec<Value>>());
     }
