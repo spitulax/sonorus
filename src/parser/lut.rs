@@ -6,7 +6,8 @@ pub const INDENT: CharsLut = chars_lut(b" \t");
 pub struct CharsLut([bool; 256]);
 impl CharsLut {
     pub const fn contains(&self, needle: char) -> bool {
-        self.0[needle as usize]
+        let n = needle as usize;
+        n < 256 && self.0[n]
     }
 
     //pub const fn inner(&self) -> [bool; 256] {
