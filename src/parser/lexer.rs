@@ -105,35 +105,19 @@ pub enum TokenKind {
     /// [`TokenData::String`]: The character (should only be a single character).
     #[default]
     Unknown,
-    /// # Data
-    /// None.
     Eof,
     /// # Data
     /// [`TokenData::Integer`]: The amount of indentation characters.
     Indent(IndentKind),
-    /// # Data
-    /// None.
     Newline,
     /// # Data
     /// [`TokenData::String`]: The string representing the number.
     Numeric,
-    /// # Data
-    /// None.
     Colon,
-    /// # Data
-    /// None.
     Equals,
-    /// # Data
-    /// None.
     LBracket,
-    /// # Data
-    /// None.
     RBracket,
-    /// # Data
-    /// None.
     LParen,
-    /// # Data
-    /// None.
     RParen,
     /// # Data
     /// [`TokenData::String`]: The identifier string.
