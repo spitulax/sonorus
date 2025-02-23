@@ -92,8 +92,6 @@ impl TokenData {
 
 #[derive(Copy, Clone, Default, Eq, PartialEq, Debug)]
 pub enum TokenKind {
-    /// # Data
-    /// [`TokenData::String`]: The character (should only be a single character).
     #[default]
     Unknown,
     Eof,
@@ -101,8 +99,6 @@ pub enum TokenKind {
     /// [`TokenData::Integer`]: The amount of indentation characters.
     Indent(IndentKind),
     Newline,
-    /// # Data
-    /// [`TokenData::String`]: The string representing the number.
     Numeric,
     Colon,
     Equals,
@@ -110,18 +106,13 @@ pub enum TokenKind {
     RBracket,
     LParen,
     RParen,
-    /// # Data
-    /// [`TokenData::String`]: The identifier string.
     Identifier,
-    /// # Data
-    /// [`TokenData::String`]: The identifier string (character by character, including the quotes).
     QuotedIdent,
     DollarSign,
     Question,
     Period,
-    /// # Data
-    /// [`TokenData::String`]: The comment string (including the opening hash symbol).
     // TODO: Multiline comment?
+    // Multiline comment will break `tests::assert_tokens`.
     Comment,
 }
 

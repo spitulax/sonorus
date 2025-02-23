@@ -86,7 +86,6 @@ impl PartialEq for SpanStr<'_> {
 
 impl Display for SpanStr<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // Ignoring `s`
         write!(
             f,
             "({}..{} {:?})",
