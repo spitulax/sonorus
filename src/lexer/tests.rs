@@ -7,32 +7,45 @@ mod assert {
     pub struct Value<'a> {
         /// [`None`] for filler, does not actually assert. Only for filling in skipped characters.
         kind: Option<TokenKind>,
-        data: Option<TokenData<'a>>,
-        len: usize,
+        data: Option<TokenData>,
+        len_char: usize,
         len_byte: usize,
+        string: Option<&'a str>,
     }
 
     impl<'a> Value<'a> {
         pub fn new(
             kind: TokenKind,
-            data: Option<TokenData<'a>>,
-            len: usize,
+            len_char: usize,
             len_byte: usize,
+            data: Option<TokenData>,
         ) -> Self {
             Self {
                 kind: Some(kind),
                 data,
-                len,
+                len_char,
                 len_byte,
+                string: None,
             }
         }
 
-        pub fn filler(len: usize, len_byte: usize) -> Self {
+        pub fn with_str(kind: TokenKind, string: &'a str, data: Option<TokenData>) -> Self {
+            Self {
+                kind: Some(kind),
+                data,
+                len_char: string.chars().count(),
+                len_byte: string.len(),
+                string: Some(string),
+            }
+        }
+
+        pub fn filler(len_char: usize, len_byte: usize) -> Self {
             Self {
                 kind: None,
                 data: None,
-                len,
+                len_char,
                 len_byte,
+                string: None,
             }
         }
     }
@@ -40,18 +53,12 @@ mod assert {
     pub mod values {
         use super::*;
 
-        pub fn filler(len: usize, len_byte: usize) -> Value<'static> {
-            Value::filler(len, len_byte)
+        pub fn filler(len_char: usize, len_byte: usize) -> Value<'static> {
+            Value::filler(len_char, len_byte)
         }
 
         pub fn numeric(n: &str) -> Value {
-            Value::new(
-                TokenKind::Numeric,
-                Some(TokenData::String(n)),
-                n.len(),
-                // Should be ASCII
-                n.len(),
-            )
+            Value::with_str(TokenKind::Numeric, n, None)
         }
 
         #[derive(Copy, Clone)]
@@ -78,13 +85,7 @@ mod assert {
         }
 
         pub fn newline(kind: NewlineKind) -> Value<'static> {
-            Value::new(
-                TokenKind::Newline,
-                None,
-                kind as usize,
-                // Should be ASCII
-                kind as usize,
-            )
+            Value::with_str(TokenKind::Newline, kind.into(), None)
         }
 
         pub fn unewline() -> Value<'static> {
@@ -94,73 +95,53 @@ mod assert {
         pub fn indent(kind: IndentKind, n: usize) -> Value<'static> {
             Value::new(
                 TokenKind::Indent(kind),
-                Some(TokenData::Integer(n)),
                 n,
                 // Should be ASCII
                 n,
+                Some(TokenData::Integer(n)),
             )
         }
 
         pub fn unknown(s: &str) -> Value {
-            Value::new(
-                TokenKind::Unknown,
-                Some(TokenData::String(s)),
-                s.chars().count(),
-                s.len(),
-            )
+            Value::with_str(TokenKind::Unknown, s, None)
         }
 
         /// # Panics
         /// Panics if the character is invalid. See [`TokenKind::char`].
         pub fn single_char(c: char) -> Value<'static> {
-            if c.len_utf8() != 1 {
+            if !c.is_ascii() {
                 panic!("Non ASCII character. Not yet needed");
             }
 
             if let Some(k) = TokenKind::char(c) {
                 // Should be ASCII
-                Value::new(k, None, 1, 1)
+                Value::new(k, 1, 1, None)
             } else {
                 panic!("Invalid character");
             }
         }
 
         /// Automatically surround with quotes
-        pub fn quoted_ident(s: &str) -> Value {
+        pub fn quoted_ident(s: &str) -> Value<'static> {
             // MAYBE: Use this <https://doc.rust-lang.org/beta/std/primitive.str.html#method.escape_debug>?
             // But I'm not sure what it escapes.
             let quoted = format!("\"{s}\"").leak();
-            Value::new(
-                TokenKind::QuotedIdent,
-                Some(TokenData::String(quoted)),
-                quoted.chars().count(),
-                quoted.len(),
-            )
+            Value::with_str(TokenKind::QuotedIdent, quoted, None)
         }
 
         pub fn ident(s: &str) -> Value {
-            Value::new(
-                TokenKind::Identifier,
-                Some(TokenData::String(s)),
-                s.chars().count(),
-                s.len(),
-            )
+            Value::with_str(TokenKind::Identifier, s, None)
         }
 
         /// Include the hash sign.
         pub fn comment(s: &str) -> Value {
-            Value::new(
-                TokenKind::Comment,
-                Some(TokenData::String(s)),
-                s.chars().count(),
-                s.len(),
-            )
+            Value::with_str(TokenKind::Comment, s, None)
         }
     }
 
     macro_rules! error {
             ($token:expr, $($msg:tt)*) => {
-                panic!("{}: {}", $token.start_loc, format!($($msg)*));
+                panic!("{}: {}", $token.char_span.lo, format!($($msg)*));
             };
         }
 
@@ -187,20 +168,17 @@ mod assert {
     pub fn assert(
         token: &Token,
         kind: &TokenKind,
+        char_span: &SpanLoc,
+        byte_span: &SpanStr,
         data: &Option<TokenData>,
-        start_loc: &Loc,
-        start_byte: &usize,
-        len: &usize,
-        len_byte: &usize,
+        string: &Option<&str>,
     ) {
         // NOTE: Keep track of fields
         let _ = Token {
             kind: TokenKind::default(),
-            start_loc: Loc::new(0, 0),
-            start_byte: 0,
+            char_span: SpanLoc::default(),
+            byte_span: SpanStr::default(),
             data: None,
-            len: 0,
-            len_byte: 0,
         };
 
         eq!(
@@ -211,15 +189,15 @@ mod assert {
         );
         eq!(
             token,
-            *start_loc,
-            token.start_loc,
-            "Expected token to start at {_l}, actually at {_r}",
+            *char_span,
+            token.char_span,
+            "Expected token to span (characters) {_l}, actually {_r}",
         );
         eq!(
             token,
-            *start_byte,
-            token.start_byte,
-            "Expected token to start at byte {_l}, actually at byte {_r}",
+            *byte_span,
+            token.byte_span,
+            "Expected token to span (bytes) {_l}, actually {_r}",
         );
         eq!(
             token,
@@ -227,21 +205,17 @@ mod assert {
             token.data,
             "Expected token data to be {_l:?}, is actually {_r:?}",
         );
-        eq!(
-            token,
-            *len,
-            token.len,
-            "Expected token length to be {_l} character(s), is actually {_r} character(s)",
-        );
-        eq!(
-            token,
-            *len_byte,
-            token.len_byte,
-            "Expected token length to be {_l} byte(s), is actually {_r} byte(s)",
-        );
+        if let Some(s) = string {
+            eq!(
+                token,
+                *s,
+                token.byte_span.to_string().unwrap(),
+                "Expected token data to be {_l:?}, is actually {_r:?}",
+            );
+        }
     }
 
-    pub fn assert_tokens(tokens: &[Token], values: &[Value]) {
+    pub fn assert_tokens(string: &str, tokens: &[Token], values: &[Value]) {
         assert_eq!(
                 tokens.len() - 1,
                 values.iter().filter(|x| x.kind.is_some()).count(),
@@ -255,20 +229,23 @@ mod assert {
             let token = &tokens[i];
 
             if let Some(ref k) = value.kind {
-                assert(
-                    token,
-                    k,
-                    &value.data,
-                    &cur_loc,
-                    &cur_byte,
-                    &value.len,
-                    &value.len_byte,
-                );
+                // TODO: Under assumption that no tokens span multiple lines for now.
+                // Obviously when we have added multiline comments this will break.
+                let mut hi_loc = cur_loc;
+                hi_loc.col += value.len_char;
+
+                let mut hi_byte = cur_byte;
+                hi_byte += value.len_byte;
+
+                let char_span = SpanLoc::new(cur_loc, hi_loc);
+                let byte_span = SpanStr::new(string, cur_byte, hi_byte);
+
+                assert(token, k, &char_span, &byte_span, &value.data, &value.string);
 
                 i += 1;
             }
 
-            cur_loc = Loc::new(cur_loc.line, cur_loc.col + value.len);
+            cur_loc = Loc::new(cur_loc.line, cur_loc.col + value.len_char);
             cur_byte += value.len_byte;
 
             if token.kind == TokenKind::Newline {
@@ -276,11 +253,13 @@ mod assert {
                 cur_loc.col = 1;
             }
         }
-        assert_eof(tokens.last().unwrap(), &cur_loc, &cur_byte);
+        assert_eof(string, tokens.last().unwrap(), &cur_loc, &cur_byte);
     }
 
-    pub fn assert_eof(token: &Token, start_loc: &Loc, start_byte: &usize) {
-        assert(token, &TokenKind::Eof, &None, start_loc, start_byte, &0, &0);
+    pub fn assert_eof(string: &str, token: &Token, start_loc: &Loc, start_byte: &usize) {
+        let char_span = SpanLoc::new(*start_loc, *start_loc);
+        let byte_span = SpanStr::new(string, *start_byte, *start_byte);
+        assert(token, &TokenKind::Eof, &char_span, &byte_span, &None, &None);
     }
 }
 
@@ -288,8 +267,9 @@ use assert::{assert_tokens, values::*, Value};
 
 #[test]
 fn empty() {
-    let tokens = Lexer::tokenise("").unwrap();
-    assert_tokens(&tokens, &[]);
+    let s = "";
+    let tokens = Lexer::tokenise(s).unwrap();
+    assert_tokens(s, &tokens, &[]);
 }
 
 #[test]
@@ -300,7 +280,7 @@ fn integer_number() {
             .collect::<String>();
 
         let tokens = Lexer::tokenise(&s).unwrap();
-        assert_tokens(&tokens, &[numeric(&s)]);
+        assert_tokens(&s, &tokens, &[numeric(&s)]);
     }
 }
 
@@ -310,15 +290,16 @@ fn unknown_token() {
         let s = (0..i).map(|_| '\r').collect::<String>();
         let v = (0..i).map(|_| unknown("\r")).collect::<Vec<Value>>();
         let tokens = Lexer::tokenise(&s).unwrap();
-        assert_tokens(&tokens, &v);
+        assert_tokens(&s, &tokens, &v);
     }
 }
 
 #[test]
 fn lone_newline() {
     for n in NEWLINES {
-        let tokens = Lexer::tokenise(n.into()).unwrap();
-        assert_tokens(&tokens, &[newline(n)]);
+        let s = n.into_str();
+        let tokens = Lexer::tokenise(s).unwrap();
+        assert_tokens(&s, &tokens, &[newline(n)]);
     }
 }
 
@@ -327,13 +308,13 @@ fn newline_and_number() {
     for n in NEWLINES {
         let s = format!("1024{}", n.into_str());
         let tokens = Lexer::tokenise(&s).unwrap();
-        assert_tokens(&tokens, &[numeric("1024"), newline(n)]);
+        assert_tokens(&s, &tokens, &[numeric("1024"), newline(n)]);
     }
 
     for n in NEWLINES {
         let s = format!("{}1024", n.into_str());
         let tokens = Lexer::tokenise(&s).unwrap();
-        assert_tokens(&tokens, &[newline(n), numeric("1024")]);
+        assert_tokens(&s, &tokens, &[newline(n), numeric("1024")]);
     }
 }
 
@@ -342,16 +323,10 @@ fn token_string() {
     let s = "1024\n2048\n";
     let tokens = Lexer::tokenise(s).unwrap();
     assert_tokens(
+        &s,
         &tokens,
         &[numeric("1024"), unewline(), numeric("2048"), unewline()],
     );
-
-    for (token, token_str) in tokens.iter().zip(&["1024", "\n", "2048", "\n"]) {
-        let bytes = token.bytes(s.as_bytes());
-        let string = token.string(s).unwrap();
-        assert_eq!(bytes, token_str.as_bytes());
-        assert_eq!(string, *token_str);
-    }
 }
 
 #[test]
@@ -374,6 +349,7 @@ fn indentation() {
     let tokens = Lexer::tokenise(s).unwrap();
 
     assert_tokens(
+        &s,
         &tokens,
         &[
             unewline(),
@@ -451,7 +427,11 @@ fn single_chars() {
 
     let s = ":=[]()$?.";
     let tokens = Lexer::tokenise(s).unwrap();
-    assert_tokens(&tokens, &s.chars().map(single_char).collect::<Vec<Value>>());
+    assert_tokens(
+        &s,
+        &tokens,
+        &s.chars().map(single_char).collect::<Vec<Value>>(),
+    );
 }
 
 #[test]
@@ -461,6 +441,7 @@ fn quoted_identifier() {
 "foo\tbar\nbaz""#;
     let tokens = Lexer::tokenise(s).unwrap();
     assert_tokens(
+        &s,
         &tokens,
         &[
             quoted_ident("foo"),
@@ -478,6 +459,7 @@ fn identifier() {
     let s = "foo\tbar\nbaz\rquux? 1337 \"420\"\n";
     let tokens = Lexer::tokenise(s).unwrap();
     assert_tokens(
+        &s,
         &tokens,
         &[
             ident("foo"),
@@ -508,6 +490,7 @@ comment # Mid-line
         let actual_s = s.replace("\n", n.into());
         let tokens = Lexer::tokenise(&actual_s).unwrap();
         assert_tokens(
+            &actual_s,
             &tokens,
             &[
                 newline(n),

@@ -5,8 +5,10 @@ use std::{fs::read_to_string, process::ExitCode};
 mod error;
 mod lexer;
 mod parser;
+mod utils;
 
 pub use error::*;
+pub use utils::*;
 
 #[derive(Parser, Debug)]
 #[command(version)]
