@@ -16,57 +16,74 @@ pub use error::*;
 pub struct Token<'a> {
     kind: TokenKind,
 
-    /// `start_loc` points at the first character.
+    /// Points at the first character.
     start_loc: Loc,
     start_byte: usize,
 
-    /// [`Some`] after the token has been finalised.
-    finalised: Option<TokenFinalised<'a>>,
+    /// Length in characters.
+    len: usize,
+    /// Length in bytes.
+    len_byte: usize,
+
+    /// Extra informations.
+    data: Option<TokenData<'a>>,
 }
 
 impl fmt::Display for Token<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "({:?}, {}", self.kind, self.start_loc)?;
-        if let Some(ref fin) = self.finalised {
-            write!(f, ", {:?}", fin.data)?;
-        }
-        write!(f, ")")?;
+        write!(f, "({:?}, {}, {:?})", self.kind, self.start_loc, self.data)?;
         Ok(())
     }
 }
 
-// TODO: We're not using it yet
 #[allow(dead_code)]
 impl<'a> Token<'_> {
-    /// Returns [`Some`] only if the token is already finalised.
-    pub fn bytes(&self, s: &'a [u8]) -> Option<&'a [u8]> {
-        self.finalised
-            .as_ref()
-            .map(|f| &s[self.start_byte..self.start_byte + f.len_byte])
+    pub fn bytes(&self, s: &'a [u8]) -> &'a [u8] {
+        &s[self.start_byte..self.start_byte + self.len_byte]
     }
 
-    /// Returns [`Some`] only if the token is already finalised and the resulting slice is a valid UTF-8.
+    /// Returns [`Some`] if the resulting slice is a valid UTF-8.
     pub fn string(&self, s: &'a str) -> Option<&'a str> {
-        self.bytes(s.as_bytes()).and_then(|b| from_utf8(b).ok())
+        let b = self.bytes(s.as_bytes());
+        from_utf8(b).ok()
     }
 }
 
-#[derive(Debug, PartialEq)]
-pub struct TokenFinalised<'a> {
+#[derive(Default, Debug)]
+pub struct TokenBuilder<'a> {
+    kind: TokenKind,
+    start_loc: Loc,
+    start_byte: usize,
     data: Option<TokenData<'a>>,
-    /// Length in characters
-    len: usize,
-    /// Length in bytes
-    len_byte: usize,
 }
 
-impl Token<'_> {
-    pub fn new(kind: TokenKind, start_loc: Loc, start_byte: usize) -> Self {
-        Self {
-            kind,
-            start_loc,
-            start_byte,
-            finalised: None,
+impl<'a> TokenBuilder<'a> {
+    pub fn reset(&mut self, kind: TokenKind, start_loc: Loc, start_byte: usize) {
+        self.kind = kind;
+        self.start_loc = start_loc;
+        self.start_byte = start_byte;
+    }
+
+    pub fn get_data_mut(&mut self) -> Result<&mut TokenData<'a>> {
+        match self.data.as_mut() {
+            Some(d) => Ok(d),
+            None => Err(Error::InvalidData),
+        }
+    }
+
+    pub fn new_data(&mut self, data: Option<TokenData<'a>>) {
+        self.data = data;
+    }
+
+    /// Sets [`TokenBuilder::data`] to [`None`].
+    pub fn build(&mut self, len: usize, len_byte: usize) -> Token<'a> {
+        Token {
+            kind: self.kind,
+            start_loc: self.start_loc,
+            start_byte: self.start_byte,
+            len,
+            len_byte,
+            data: self.data.take(),
         }
     }
 }
@@ -75,6 +92,16 @@ impl Token<'_> {
 pub enum TokenData<'a> {
     String(&'a str),
     Integer(usize),
+}
+
+impl TokenData<'_> {
+    pub fn integer(&mut self) -> Result<&mut usize> {
+        if let Self::Integer(v) = self {
+            Ok(v)
+        } else {
+            Err(Error::InvalidData)
+        }
+    }
 }
 
 #[derive(Copy, Clone, Default, Debug, Eq, PartialEq)]
@@ -197,13 +224,10 @@ pub struct Lexer<'a> {
     cur_state: State,
     next_state: State,
 
-    cur_token: Token<'a>,
+    cur_token: TokenBuilder<'a>,
     cur_char: Option<char>,
 
     tokens: Vec<Token<'a>>,
-
-    /// Token data constructed before finalisation.
-    pending_data: Option<TokenData<'a>>,
 
     inside_quotes: bool,
 }
@@ -217,10 +241,9 @@ impl<'a> Lexer<'a> {
             iter: str.chars().peekable(),
             cur_state: State::New,
             next_state: State::New,
-            cur_token: Token::default(),
+            cur_token: TokenBuilder::default(),
             cur_char: None,
             tokens: vec![],
-            pending_data: None,
             inside_quotes: false,
         };
         ret.cur_char = ret.iter.next();
@@ -229,7 +252,8 @@ impl<'a> Lexer<'a> {
     }
 
     fn search(&mut self, token_kind: TokenKind) {
-        self.cur_token = Token::new(token_kind, self.cur_loc, self.cur_byte);
+        self.cur_token
+            .reset(token_kind, self.cur_loc, self.cur_byte);
         self.next_state = State::Search;
     }
 
@@ -237,43 +261,35 @@ impl<'a> Lexer<'a> {
         self.next_state = State::Finalise
     }
 
-    fn finalise_token(&self, data: Option<TokenData<'a>>) -> Result<Token<'a>> {
+    fn finalise_token(&mut self) -> Result<Token<'a>> {
         // NOTE: Only `TokenKind::Eof` is zero-sized
         if self.cur_token.kind != TokenKind::Eof && self.cur_loc.col <= self.cur_token.start_loc.col
         {
-            return Err(Error::UnfinalisedOrEmptyToken);
+            return Err(Error::EmptyToken);
         }
 
-        Ok(Token {
-            kind: self.cur_token.kind,
-            start_loc: self.cur_token.start_loc,
-            start_byte: self.cur_token.start_byte,
-            finalised: Some(TokenFinalised {
-                data,
-                len: self.cur_loc.col - self.cur_token.start_loc.col,
-                len_byte: self.cur_byte - self.cur_token.start_byte,
-            }),
-        })
+        let len = self.cur_loc.col - self.cur_token.start_loc.col;
+        let len_byte = self.cur_byte - self.cur_token.start_byte;
+
+        Ok(self.cur_token.build(len, len_byte))
     }
 
-    fn push(&mut self, data: Option<TokenData<'a>>) -> Result<()> {
-        self.tokens.push(self.finalise_token(data)?);
+    fn push(&mut self) -> Result<()> {
+        let token = self.finalise_token()?;
+        self.tokens.push(token);
         self.next_state = State::New;
         Ok(())
     }
 
-    fn push_with_pending_data(&mut self) -> Result<()> {
-        let data = self
-            .pending_data
-            .take()
-            .ok_or(Error::InvalidPendingData(self.cur_token.kind))?;
-        self.push(Some(data))?;
+    fn push_with_token_str(&mut self) -> Result<()> {
+        self.set_cur_token_str()?;
+        self.push()?;
         Ok(())
     }
 
-    fn push_with_token_str(&mut self) -> Result<()> {
+    fn set_cur_token_str(&mut self) -> Result<()> {
         let s = self.cur_token_as_str()?;
-        self.push(Some(TokenData::String(s)))?;
+        self.cur_token.new_data(Some(TokenData::String(s)));
         Ok(())
     }
 
@@ -316,7 +332,7 @@ impl<'a> Lexer<'a> {
                     // gives the amount of spaces.
                     // Indentation characters that are right next to each other are grouped into a
                     // single token.
-                    self.pending_data = Some(TokenData::Integer(0));
+                    self.cur_token.new_data(Some(TokenData::Integer(0)));
                     self.search(TokenKind::Indent(c.into()));
                 } else {
                     self.next()?;
@@ -373,18 +389,8 @@ impl<'a> Lexer<'a> {
                 }
                 TokenKind::Indent(kind) => {
                     if lut::INDENT.contains(c) && kind == c.into() {
-                        self.pending_data = Some(
-                            self.pending_data
-                                .as_ref()
-                                .and_then(|d| {
-                                    if let TokenData::Integer(i) = d {
-                                        Some(TokenData::Integer(i + 1))
-                                    } else {
-                                        None
-                                    }
-                                })
-                                .ok_or(Error::InvalidPendingData(TokenKind::Indent(kind)))?,
-                        );
+                        let i = self.cur_token.get_data_mut()?.integer()?;
+                        *i += 1;
                         self.next()?;
                     } else {
                         self.finalise();
@@ -458,14 +464,14 @@ impl<'a> Lexer<'a> {
             | TokenKind::RParen
             | TokenKind::DollarSign
             | TokenKind::Question
-            | TokenKind::Period => self.push(None)?,
-            TokenKind::Indent(_) => self.push_with_pending_data()?,
+            | TokenKind::Period => self.push()?,
+            TokenKind::Indent(_) => self.push()?,
             TokenKind::Eof => {
-                self.push(None)?;
+                self.push()?;
                 return Ok(true);
             }
             TokenKind::Newline => {
-                self.push(None)?;
+                self.push()?;
                 self.cur_loc.line += 1;
                 self.cur_loc.col = 1;
             }

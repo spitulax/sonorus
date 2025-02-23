@@ -198,53 +198,47 @@ mod assert {
             kind: TokenKind::default(),
             start_loc: Loc::new(0, 0),
             start_byte: 0,
-            finalised: Some(TokenFinalised {
-                data: None,
-                len: 0,
-                len_byte: 0,
-            }),
+            data: None,
+            len: 0,
+            len_byte: 0,
         };
 
-        if let Some(ref f) = token.finalised {
-            eq!(
-                token,
-                *kind,
-                token.kind,
-                "Expected token kind to be {_l:?}, is actually {_r:?}",
-            );
-            eq!(
-                token,
-                *start_loc,
-                token.start_loc,
-                "Expected token to start at {_l}, actually at {_r}",
-            );
-            eq!(
-                token,
-                *start_byte,
-                token.start_byte,
-                "Expected token to start at byte {_l}, actually at byte {_r}",
-            );
-            eq!(
-                token,
-                *data,
-                f.data,
-                "Expected token data to be {_l:?}, is actually {_r:?}",
-            );
-            eq!(
-                token,
-                *len,
-                f.len,
-                "Expected token length to be {_l} character(s), is actually {_r} character(s)",
-            );
-            eq!(
-                token,
-                *len_byte,
-                f.len_byte,
-                "Expected token length to be {_l} byte(s), is actually {_r} byte(s)",
-            );
-        } else {
-            error!(token, "The token has not been finalised");
-        }
+        eq!(
+            token,
+            *kind,
+            token.kind,
+            "Expected token kind to be {_l:?}, is actually {_r:?}",
+        );
+        eq!(
+            token,
+            *start_loc,
+            token.start_loc,
+            "Expected token to start at {_l}, actually at {_r}",
+        );
+        eq!(
+            token,
+            *start_byte,
+            token.start_byte,
+            "Expected token to start at byte {_l}, actually at byte {_r}",
+        );
+        eq!(
+            token,
+            *data,
+            token.data,
+            "Expected token data to be {_l:?}, is actually {_r:?}",
+        );
+        eq!(
+            token,
+            *len,
+            token.len,
+            "Expected token length to be {_l} character(s), is actually {_r} character(s)",
+        );
+        eq!(
+            token,
+            *len_byte,
+            token.len_byte,
+            "Expected token length to be {_l} byte(s), is actually {_r} byte(s)",
+        );
     }
 
     pub fn assert_tokens(tokens: &[Token], values: &[Value]) {
@@ -353,7 +347,7 @@ fn token_string() {
     );
 
     for (token, token_str) in tokens.iter().zip(&["1024", "\n", "2048", "\n"]) {
-        let bytes = token.bytes(s.as_bytes()).unwrap();
+        let bytes = token.bytes(s.as_bytes());
         let string = token.string(s).unwrap();
         assert_eq!(bytes, token_str.as_bytes());
         assert_eq!(string, *token_str);

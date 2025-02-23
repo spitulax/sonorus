@@ -1,4 +1,3 @@
-use super::TokenKind;
 use derive_more::{Display, From};
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -10,9 +9,9 @@ pub enum Error {
     #[display("Searched EOF token before actually reaching EOF")]
     PrematureEofToken,
     #[display("A token was separated by newline or empty")]
-    UnfinalisedOrEmptyToken,
+    EmptyToken,
     #[display("Tried to construct an invalid UTF-8 string")]
     InvalidUtf8,
-    #[display("Tried to access invalid pending data for {_0:?}")]
-    InvalidPendingData(TokenKind),
+    #[display("Tried to access invalid token data")]
+    InvalidData,
 }
