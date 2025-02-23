@@ -280,10 +280,9 @@ impl<'a> Lexer<'a> {
     fn push_with_pending_data(&mut self) -> Result<()> {
         let data = self
             .pending_data
-            .clone()
+            .take()
             .ok_or(Error::InvalidPendingData(self.cur_token.kind))?;
         self.push(Some(data))?;
-        self.pending_data = None;
         Ok(())
     }
 
